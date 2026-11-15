@@ -1,0 +1,237 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "Postador"
+include(":app")
+plugins {
+    id("com.android.application") version "8.5.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+}
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.postador.app"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "com.postador.app"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 1
+        versionName = "0.1"
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <queries>
+        <package android:name="com.instagram.android" />
+        <package android:name="com.zhiliaoapp.musically" />
+        <package android:name="com.ss.android.ugc.trill" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.kwai.video" />
+    </queries>
+
+    <application
+        android:label="Postador"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".PostadorService"
+            android:exported="false"
+            android:label="Postador"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_config" />
+        </service>
+    </application>
+</manifest>
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="100" />
+    package com.postador.app
+
+import android.app.Activity
+import android.content.Intent
+import android.os.Bundle
+import android.provider.Settings
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+
+class MainActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 96, 48, 48)
+        }
+
+        val titulo = TextView(this).apply {
+            text = "Postador"
+            textSize = 28f
+        }
+
+        val botaoAcessibilidade = Button(this).apply {
+            text = "1. Ativar acessibilidade"
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+        }
+
+        val botaoTeste = Button(this).apply {
+            text = "2. Testar: abrir Instagram e tocar no +"
+            setOnClickListener {
+                val servico = PostadorService.instance
+                if (servico == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Ative a acessibilidade primeiro",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    servico.testarInstagram()
+                }
+            }
+        }
+
+        layout.addView(titulo)
+        layout.addView(botaoAcessibilidade)
+        layout.addView(botaoTeste)
+        setContentView(layout)
+    }
+}
+package com.postador.app
+
+import android.accessibilityservice.AccessibilityService
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Toast
+
+class PostadorService : AccessibilityService() {
+
+    companion object {
+        var instance: PostadorService? = null
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
+
+    override fun onServiceConnected() {
+        instance = this
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
+    override fun onInterrupt() {}
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        instance = null
+        return super.onUnbind(intent)
+    }
+
+    fun testarInstagram() {
+        val intent = packageManager.getLaunchIntentForPackage("com.instagram.android")
+        if (intent == null) {
+            aviso("Instagram não encontrado")
+            return
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+        handler.postDelayed({
+            val ok = clicarPorTexto(listOf("Criar", "Nova publicação", "Create", "New post"))
+            aviso(if (ok) "Cliquei no +" else "Não achei o botão")
+        }, 5000)
+    }
+
+    private fun clicarPorTexto(alvos: List<String>): Boolean {
+        val raiz = rootInActiveWindow ?: return false
+        val no = achar(raiz, alvos) ?: return false
+        var atual: AccessibilityNodeInfo? = no
+        while (atual != null) {
+            if (atual.isClickable) {
+                return atual.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+            atual = atual.parent
+        }
+        return false
+    }
+
+    private fun achar(no: AccessibilityNodeInfo, alvos: List<String>): AccessibilityNodeInfo? {
+        val textos = listOfNotNull(no.contentDescription?.toString(), no.text?.toString())
+        if (textos.any { t -> alvos.any { t.equals(it, ignoreCase = true) } }) return no
+        for (i in 0 until no.childCount) {
+            val filho = no.getChild(i) ?: continue
+            val achado = achar(filho, alvos)
+            if (achado != null) return achado
+        }
+        return null
+    }
+
+    private fun aviso(msg: String) {
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+    }
+}
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+      - run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: postador-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
